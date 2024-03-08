@@ -2,13 +2,20 @@
 
 Velmi jednoduchý a narychlo splácaný nástroj na vystřihnutí krátkých ukázek z adresáře zvukových souborů. Možnost nastavit fade in a fade out.
 
-# Použití
+# Instalace (Windows)
 
 - `pip install -r requirements.txt`
+- stáhnout binárky `ffmpeg` buď [odsud](https://www.gyan.dev/ffmpeg/builds/) nebo [odsud](https://github.com/BtbN/FFmpeg-Builds/releases)
+- extrahovat `ffmpeg` někam na disk
+- přidat do `%path%` adresář `ffmpeg/bin`
+
+# Použití
+
 - spustit `pcutter.py`
 - zvolit adresář se songy (podporuje MP3, WAV, FLAC)
 - zvolit u každého zvuku začátek/délku a fade in/out
 - export (vytvoří v původním adresáři adresář output)
+- pokud chcete vytvářet další playlist, musíte restartovat program :D
 
 # Info/doporučení
 
