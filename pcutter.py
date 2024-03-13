@@ -55,12 +55,11 @@ class VerticalScrolledFrame(tkinter.Frame):
         canvas.bind('<Configure>', _configure_canvas)
 
 PLAYBACK = None
-
 music_file_ext = ["mp3", "wav", "flac"]
 
 def util_callback_sv(master, default_val, update_func):
     v = tkinter.StringVar(master, default_val)
-    v.trace("w", lambda n,i,m, v=v: update_func())
+    v.trace("w", lambda n,i,m,v=v: update_func())
 
     return v
 
@@ -79,31 +78,35 @@ class PlaylistSong:
     def __init__(self, filename):
         self.bar_count = 1024
         self.db_ceiling = 60
+        self.wave_w = 512
+        self.wave_h = 96
         
         self.filename = filename
 
         self.audio = AudioSegment.from_file(self.filename, os.path.splitext(self.filename)[1][1:])
+        self.info = mediainfo(self.filename)
 
-        self.peaks = self._calculate_peaks(self.audio)
-
-        self.i = mediainfo(self.filename)
+        self.calculate_peaks()
+        self.generate_waveform_image()
 
     def edit_song(self, start, dur, fade_in, fade_out):
         s = math.floor(start*1000)
         d = math.floor(dur*1000)
         fi = math.floor(fade_in*1000)
         fo = math.floor(fade_out*1000)
-        print(s, d, fi, fo)
-        a = self.audio[s:s+d]
+
+        output = self.audio[s:s+d]
+
         if fi > 0:
-            a = a.fade_in(fi)
+            output = output.fade_in(fi)
         if fo > 0:
-            a = a.fade_out(fo)
-        return a
+            output = output.fade_out(fo)
+
+        return output
 
     def format_name(self):
-        if "TAG" in self.i:
-            t = self.i["TAG"]
+        if "TAG" in self.info:
+            t = self.info["TAG"]
             if "title" in t and "artist" in t:
                 return t["artist"] + " - " + t["title"]
 
@@ -112,26 +115,21 @@ class PlaylistSong:
             
         return os.path.splitext(os.path.basename(self.filename))[0]
 
-    def _calculate_peaks(self, audio_file):
-        """ Returns a list of audio level peaks """
-        chunk_length = len(audio_file) / self.bar_count
+    def calculate_peaks(self):
+        chunk_length = len(self.audio) / self.bar_count
 
-        loudness_of_chunks = [
-            audio_file[i * chunk_length: (i + 1) * chunk_length].rms
-            for i in range(self.bar_count)]
+        loudness_of_chunks = [self.audio[i * chunk_length: (i + 1) * chunk_length].rms for i in range(self.bar_count)]
 
         max_rms = max(loudness_of_chunks) * 1.00
 
-        return [int((loudness / max_rms) * self.db_ceiling)
-                for loudness in loudness_of_chunks]
+        self.peaks = [int((loudness / max_rms) * self.db_ceiling) for loudness in loudness_of_chunks]
 
     def generate_waveform_image(self):
-        """ Returns the full waveform image """
-        w = 512
-        h = 96
+        w = self.wave_w
+        h = self.wave_h
         
-        im = Image.new('RGB', (w, h), '#f5f5f5')
-        d = ImageDraw.Draw(im)
+        self.wave_img = Image.new('RGB', (w, h), '#f5f5f5')
+        draw = ImageDraw.Draw(self.wave_img)
         
         ymax = max(self.peaks)
         for i, value in enumerate(self.peaks, start=0):
@@ -140,9 +138,7 @@ class PlaylistSong:
             y1 = (h/2)+ym
             y2 = (h/2)-ym
             
-            d.line(((x, y1), (x, y2)), "red", width=0)
-            
-        return im
+            draw.line(((x, y1), (x, y2)), "red", width=0)
 
 class PlayList:
     def __init__(self, filepath):
@@ -152,10 +148,11 @@ class PlayList:
         for f in os.listdir(filepath):
             n, ext = os.path.splitext(f)
             
-            if ext[1:].lower() in music_file_ext:
-                print(f"playlist: loading {f}")
-                
-                self.songs.append(PlaylistSong(os.path.join(self.path, f)))
+            if not ext[1:].lower() in music_file_ext:
+                print(f"playlist: unsupported file format: {f}")
+
+            print(f"playlist: loading {f}")
+            self.songs.append(PlaylistSong(os.path.join(self.path, f)))
 
     def get_songs(self):
         return self.songs
@@ -187,7 +184,6 @@ class SongEditPanel:
 
         self.dur_label = tkinter.Label(self.opt_frame, text="Duration:")
         self.dur_entry = tkinter.Entry(self.opt_frame, textvariable=util_callback_sv(self.opt_frame, "30", update_func))
-
 
         for e in [self.fi_entry, self.fo_entry, self.dur_entry]:
             e.bind("<Key>", update_func)
@@ -233,9 +229,8 @@ class GuiSongPanel:
         self.img_frame = tkinter.Frame(self.frame)
         self.control_frame = tkinter.Frame(self.frame)
 
-        self.waveform_img = ImageTk.PhotoImage(self.song.generate_waveform_image())
-        self.edit_w = self.waveform_img.width()
-        self.edit_h = self.waveform_img.height()
+        self.edit_w = self.song.wave_img.width()
+        self.edit_h = self.song.wave_img.height()
 
         self.edit_canvas = tkinter.Canvas(self.img_frame, width=self.edit_w, height=self.edit_h)    
         self.edit_canvas.bind("<Motion>", self.canvas_on_hover)
@@ -243,9 +238,8 @@ class GuiSongPanel:
         self.edit_canvas.bind("<Button-3>", self.gui_play_from_event)
         self.edit_canvas.pack(side=tkinter.BOTTOM, fill="both", expand="yes")
 
-        ## add image to canvas
-        self.edit_canvas.create_image(0, 0, anchor=tkinter.NW, image=self.waveform_img)
-        self.edit_lines = [] ## for editing
+        self.edit_canvas.create_image(0, 0, anchor=tkinter.NW, image=self.song.wave_img)
+        self.edit_lines = []
 
         self.canvas_hover = SimpleHovertip(self.edit_canvas, "00:00", 0)
 
@@ -285,8 +279,7 @@ class GuiSongPanel:
         self.update_canvas()
 
     def canvas_on_hover(self, evt):
-        x = evt.x
-        t = (x/self.edit_w)*self.song.audio.duration_seconds
+        t = (evt.x/self.edit_w)*self.song.audio.duration_seconds
         self.canvas_hover.r_text.set("{0:02d}:{1:02d}".format(int(math.floor(t/60)), int(t%60)))
 
     def gui_play_from_event(self, evt):
@@ -330,7 +323,6 @@ class GuiSongPlaylist:
 
         self.frame = VerticalScrolledFrame(parent)
         
-        
         for s in self.songs_audio:
             gp = GuiSongPanel(s, self.frame.interior)
             self.songs.append(gp)
@@ -347,13 +339,10 @@ class GuiSongPlaylist:
     def pack(self):
         self.frame.pack(fill=tkinter.Y, expand=True)
 
-
 directory = filedialog.askdirectory()
+pl = PlayList(directory)
 
 w = tkinter.Tk()
-##w.geometry("640x800")
-
-pl = PlayList(directory)
 
 g = GuiSongPlaylist(pl.get_songs(), w)
 g.pack()
